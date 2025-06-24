@@ -1,0 +1,10 @@
+# build output
+dist/
+tmp/
+
+# environment variables
+.env
+
+# macOS-specific files
+.DS_Store
+

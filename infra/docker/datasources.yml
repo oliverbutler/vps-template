@@ -1,0 +1,56 @@
+apiVersion: 1
+prune: false
+
+datasources:
+  - name: Loki
+    type: loki
+    access: direct
+    orgId: 1
+    uid: grafana_lokiq
+    url: $LOKI_INTERNAL_URL
+    user:
+    database:
+    basicAuth:
+    basicAuthUser:
+    withCredentials:
+    isDefault: true
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    orgId: 1
+    uid: grafana_prometheus
+    url: $PROMETHEUS_INTERNAL_URL
+    user:
+    database:
+    basicAuth:
+    basicAuthUser:
+    withCredentials:
+    isDefault: false
+  - name: Tempo
+    type: tempo
+    access: proxy
+    orgId: 1
+    uid: grafana_tempo
+    url: $TEMPO_INTERNAL_URL
+    user:
+    database:
+    basicAuth:
+    basicAuthUser:
+    withCredentials:
+    isDefault: false
+  - name: PostgreSQL
+    type: postgres
+    access: proxy
+    orgId: 1
+    uid: grafana_postgres
+    url: $POSTGRES_INTERNAL_URL
+    user: $POSTGRES_GRAFANA_USER
+    database: $POSTGRES_DATABASE
+    basicAuth:
+    basicAuthUser:
+    withCredentials:
+    isDefault: false
+    jsonData:
+      sslmode: disable
+    secureJsonData:
+      password: $POSTGRES_GRAFANA_PASSWORD

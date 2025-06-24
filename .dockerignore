@@ -1,0 +1,48 @@
+# Dependencies
+**/node_modules
+**/dist
+**/build
+**/.next
+**/.cache
+
+# Version control
+.git
+.gitignore
+
+# Development
+.vscode
+.idea
+*.log
+*.env
+.env*
+!.env.example
+
+# Docker
+**/Dockerfile*
+**/.docker
+infra/docker
+docker-compose*.yml
+
+# Temporary files
+**/tmp
+**/temp
+**/.tmp
+**/.temp
+
+# Documentation and misc
+docs
+*.md
+LICENSE
+.DS_Store
+
+# Test files
+**/*_test.go
+coverage.out
+
+# Build directories
+.cursor
+.roo
+client/.vscode
+client/tmp
+scripts/scraper
+tmp/ 

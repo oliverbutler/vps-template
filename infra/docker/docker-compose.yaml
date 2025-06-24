@@ -1,0 +1,232 @@
+services:
+  db:
+    image: postgres:16.4
+    environment:
+      - POSTGRES_DB=main
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./init-grafana-user.sql:/docker-entrypoint-initdb.d/init-grafana-user.sql
+    ports:
+      - target: 5432
+        published: 5432
+        mode: host
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_net
+
+  traefik:
+    image: "traefik:v3.3"
+    container_name: "traefik"
+    networks:
+      - app_net
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=YOUR_EMAIL"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+  app:
+    image: ghcr.io/YOUR_GITHUB_ORG/YOUR_GITHUB_REPO:latest
+    restart: unless-stopped
+    networks:
+      - app_net
+    deploy:
+      mode: replicated
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+        window: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`YOUR_DOMAIN`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls.certresolver=myresolver"
+      - "traefik.http.routers.app.service=app"
+      - "traefik.http.services.app.loadbalancer.server.port=3000"
+      - "traefik.http.services.app.loadbalancer.healthcheck.path=/"
+      - "traefik.http.services.app.loadbalancer.healthcheck.interval=30s"
+      - "traefik.http.services.app.loadbalancer.healthcheck.timeout=5s"
+      - "traefik.http.services.app.loadbalancer.sticky.cookie=true"
+      - "traefik.http.services.app.loadbalancer.sticky.cookie.name=app_sticky"
+      - "traefik.http.services.app.loadbalancer.sticky.cookie.secure=true"
+
+    environment:
+      DB_HOST: db
+      DB_NAME: main
+      DB_USER: postgres
+      DB_PORT: 5432
+      DB_PASSWORD: password
+      BASE_URL: https://YOUR_DOMAIN
+      ENV: production
+      OTEL_ENDPOINT: http://tempo:4318/v1/traces
+      LOG_PATH: /tmp/app-logs/app.log
+    volumes:
+      - "/tmp/app-logs:/tmp/app-logs"
+    depends_on:
+      - db
+      - tempo
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    networks:
+      - app_net
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=https://grafana.YOUR_DOMAIN
+      - LOKI_INTERNAL_URL=http://loki:3100
+      - PROMETHEUS_INTERNAL_URL=http://prometheus:9090
+      - TEMPO_INTERNAL_URL=http://tempo:3200
+      - POSTGRES_INTERNAL_URL=db:5432
+      - POSTGRES_GRAFANA_USER=grafana_reader
+      - POSTGRES_GRAFANA_PASSWORD=grafana_readonly_pass
+      - POSTGRES_DATABASE=main
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.YOUR_DOMAIN`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=myresolver"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    depends_on:
+      - loki
+      - prometheus
+      - tempo
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: unless-stopped
+    networks:
+      - app_net
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    networks:
+      - app_net
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prom.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-remote-write-receiver"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    restart: unless-stopped
+    networks:
+      - app_net
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./tempo.yml:/etc/tempo/tempo.yaml
+      - tempo-data:/var/tempo
+    command: -config.file=/etc/tempo/tempo.yaml
+    depends_on:
+      - prometheus
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    restart: unless-stopped
+    networks:
+      - app_net
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml
+      - "/tmp/app-logs:/tmp/app-logs:ro"
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    restart: unless-stopped
+    networks:
+      - app_net
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /etc/hostname:/etc/nodename:ro
+    environment:
+      - TZ=UTC
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--web.listen-address=:9100"
+    pid: host
+
+networks:
+  app_net:
+    name: app_net
+
+volumes:
+  db-data:
+  grafana-data:
+  loki-data:
+  prometheus-data:
+  tempo-data:

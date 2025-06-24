@@ -1,0 +1,148 @@
+name: Build & Deploy 🚀
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code ⤵️
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+
+      - name: Install Docker
+        uses: docker/setup-buildx-action@v2
+
+      - name: Setup DB
+        run: make up
+
+      - uses: sqlc-dev/setup-sqlc@v3
+        with:
+          sqlc-version: "1.29.0"
+
+      - run: sqlc diff
+
+      - name: Install goose
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/pressly/goose/master/install.sh |\
+            sh
+
+      - name: Run Migrations
+        run: make migrate-test
+
+      - name: Run tests
+        run: make test
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
+    steps:
+      - name: Checkout code ⤵️
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx 👷
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Generate image tag 🏷️
+        id: generate_tag
+        run: |
+          ISO_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          IMAGE_TAG="${ISO_TIMESTAMP}-${SHORT_SHA}"
+          # Replace colons and plus signs to comply with Docker tag rules
+          IMAGE_TAG_SANITIZED=$(echo "${IMAGE_TAG}" | tr -d ':' | tr '+' '-')
+          echo "image_tag=${IMAGE_TAG_SANITIZED}" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Build and push Docker image 💨
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/YOUR_GITHUB_ORG/YOUR_GITHUB_REPO:${{ steps.generate_tag.outputs.image_tag }}
+            ghcr.io/YOUR_GITHUB_ORG/YOUR_GITHUB_REPO:latest
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VITE_API_URL=
+            VITE_APP_ENV=production
+            IMAGE_TAG=${{ steps.generate_tag.outputs.image_tag }}
+          buildx-args: --debug
+
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout code ⤵️
+        uses: actions/checkout@v3
+
+      - name: Setup Tailscale
+        id: tailscale
+        uses: tailscale/github-action@main
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:user
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "Host vps
+            Hostname ${{ secrets.VPS_IP }}
+            User user
+            IdentityFile ~/.ssh/id_ed25519
+            StrictHostKeyChecking no
+            UserKnownHostsFile=/dev/null
+          " > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      # Create .env file with secrets
+      - name: Create .env file
+        run: |
+          cat << EOF > infra/docker/.env
+          GRAFANA_ADMIN_PASSWORD=${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          EOF
+
+      - name: Wait for test and build to complete
+        uses: yogeshlonkar/wait-for-jobs@v0
+        with:
+          jobs: "test,build"
+
+      - name: Copy docker directory with rsync
+        run: |
+          rsync -avz --no-o --no-g infra/docker/ vps:/home/user/docker/
+
+      - name: Deploy to Production
+        run: |
+          ssh vps "
+            cd /home/user/docker
+            echo '${{ secrets.CONTAINER_REGISTRY_PASSWORD }}' | docker login ghcr.io -u user --password-stdin
+
+            docker compose --env-file .env pull
+            docker rollout backend --env-file .env
+            docker compose --env-file .env up -d --remove-orphans --scale backend=2
+
+            docker image prune -f  # Clean up old images
+              "

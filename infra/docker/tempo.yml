@@ -1,0 +1,57 @@
+server:
+  http_listen_port: 3200
+
+compactor:
+  compaction:
+    compaction_window: 1h
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+
+distributor:
+  log_received_spans:
+    enabled: true
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+
+overrides:
+  defaults:
+    ingestion:
+      rate_limit_bytes: 20000000 # 20MB/s per user (higher than default 15MB)
+      burst_size_bytes: 30000000 # 30MB burst (higher than default 20MB)
+      max_traces_per_user: 20000 # Double the default of 10000
+    metrics_generator:
+      processors:
+        - span-metrics
+        - local-blocks
+
+metrics_generator:
+  processor:
+    span_metrics:
+      dimensions:
+        - http.method
+        - http.status_code
+        - http.route
+        - service.name
+
+    local_blocks:
+      filter_server_spans: false
+      flush_to_storage: true
+
+  storage:
+    path: /var/tempo/metrics
+
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+
+  traces_storage:
+    path: /var/tempo/generator/traces
