@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SERVER_IP="vps-0"
+SERVER_IP="YOUR_VPS_IP"
 SSH_USER="root"
 CONFIG_DIR="infra/vps-0"
 

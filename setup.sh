@@ -68,44 +68,69 @@ echo
 gum style --foreground 99 --bold "🔍 Running sanity checks..."
 
 # Check if domain resolves to VPS IP
-gum spin --spinner dot --title "Checking if domain resolves to VPS IP..." -- sleep 1
-RESOLVED_IP=$(dig +short $DOMAIN | tail -n1)
-if [ "$RESOLVED_IP" != "$VPS_IP" ]; then
-    gum style --foreground 196 "⚠️  Warning: Domain $DOMAIN resolves to $RESOLVED_IP, but VPS IP is $VPS_IP"
-    if ! gum confirm "Continue anyway?"; then
-        exit 1
+while true; do
+    gum spin --spinner dot --title "Checking if domain resolves to VPS IP..." -- sleep 1
+    RESOLVED_IP=$(dig +short $DOMAIN | tail -n1)
+    if [ "$RESOLVED_IP" != "$VPS_IP" ]; then
+        gum style --foreground 196 "⚠️  Warning: Domain $DOMAIN resolves to $RESOLVED_IP, but VPS IP is $VPS_IP"
+        CHOICE=$(gum choose --header "What would you like to do?" "Try again" "Continue anyway" "Exit")
+        case $CHOICE in
+            "Try again")
+                continue
+                ;;
+            "Continue anyway")
+                break
+                ;;
+            "Exit")
+                exit 1
+                ;;
+        esac
+    else
+        gum style --foreground 46 "✅ Domain resolves correctly"
+        break
     fi
-else
-    gum style --foreground 46 "✅ Domain resolves correctly"
-fi
+done
 
-# Ping VPS
-gum spin --spinner dot --title "Pinging VPS..." -- ping -c 1 $VPS_IP > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    gum style --foreground 46 "✅ VPS is reachable"
-else
-    gum style --foreground 196 "❌ Cannot reach VPS at $VPS_IP"
-    exit 1
-fi
 
-# Test SSH connection
-gum spin --spinner dot --title "Testing SSH connection..." -- timeout 5 ssh -o BatchMode=yes -o ConnectTimeout=5 root@$VPS_IP exit 2>/dev/null
-if [ $? -eq 0 ]; then
-    gum style --foreground 46 "✅ SSH connection successful"
-else
-    gum style --foreground 196 "❌ Cannot SSH to VPS. Make sure you can SSH as root."
-    if ! gum confirm "Continue anyway? (You'll need to fix SSH access later)"; then
-        exit 1
+# Test SSH connection (skip ping as many providers block ICMP)
+gum style --foreground 250 "🔑 Testing SSH connectivity..."
+while true; do
+    gum style --foreground 250 "Attempting SSH connection to root@$VPS_IP..."
+    
+    # Test SSH connection with timeout
+    if timeout 10 ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@$VPS_IP exit 2>/dev/null; then
+        gum style --foreground 46 "✅ SSH connection successful"
+        break
+    else
+        gum style --foreground 196 "❌ Cannot SSH to VPS"
+        gum style --foreground 250 "Make sure you can SSH as root with key-based authentication."
+        gum style --foreground 250 "Try: ssh root@$VPS_IP"
+        
+        CHOICE=$(gum choose --header "What would you like to do?" "Try again" "Continue anyway" "Exit")
+        case $CHOICE in
+            "Try again")
+                continue
+                ;;
+            "Continue anyway")
+                gum style --foreground 250 "⚠️  Continuing without SSH verification - you'll need working SSH for deployment"
+                break
+                ;;
+            "Exit")
+                exit 1
+                ;;
+        esac
     fi
-fi
+done
 
 # Tailscale setup
 echo
 gum style --foreground 99 --bold "🔧 Tailscale Setup"
 gum style --foreground 250 "You need to set up Tailscale OAuth for GitHub Actions."
 gum style --foreground 250 "1. Go to: https://login.tailscale.com/admin/settings/oauth"
-gum style --foreground 250 "2. Generate OAuth client"
-gum style --foreground 250 "3. Copy the Client ID and Client Secret"
+gum style --foreground 250 "2. Generate OAuth client with 'auth-keys' permission"
+gum style --foreground 250 "3. IMPORTANT: Tag it (e.g., create a tag for your project)"
+gum style --foreground 250 "   This limits GitHub Actions access to only your app's devices"
+gum style --foreground 250 "4. Copy the Client ID and Client Secret"
 
 if ! gum confirm "Have you created the Tailscale OAuth client?"; then
     gum style --foreground 196 "Please create the OAuth client first, then run this script again."
@@ -119,23 +144,65 @@ gum style --foreground 250 "Now you need a Tailscale auth key for the VPS."
 gum style --foreground 250 "Go to: https://login.tailscale.com/admin/settings/keys"
 TS_AUTH_KEY=$(gum input --password --placeholder "Enter Tailscale Auth Key")
 
-# Generate SSH key
+# Select user's personal SSH key
 echo
-gum style --foreground 99 --bold "🔑 Generating SSH keys..."
+gum style --foreground 99 --bold "🔑 Select your personal SSH key"
+gum style --foreground 250 "Choose your personal SSH key for VPS access:"
 
-SSH_KEY_PATH="/tmp/vps-setup-key"
+# Find available SSH public keys
+SSH_KEYS=()
+if [ -d "$HOME/.ssh" ]; then
+    while IFS= read -r -d '' file; do
+        if [[ "$file" == *.pub ]]; then
+            key_name=$(basename "$file" .pub)
+            key_type=$(ssh-keygen -l -f "$file" 2>/dev/null | awk '{print $4}' || echo "unknown")
+            SSH_KEYS+=("$key_name ($key_type)")
+        fi
+    done < <(find "$HOME/.ssh" -name "*.pub" -print0)
+fi
+
+if [ ${#SSH_KEYS[@]} -eq 0 ]; then
+    gum style --foreground 196 "❌ No SSH public keys found in ~/.ssh/"
+    gum style --foreground 250 "Please generate an SSH key first:"
+    gum style --foreground 250 "  ssh-keygen -t ed25519 -C \"your-email@example.com\""
+    exit 1
+fi
+
+SSH_KEYS+=("Generate new key")
+
+SELECTED_KEY=$(gum choose --header "Select SSH key for personal VPS access:" "${SSH_KEYS[@]}")
+
+if [ "$SELECTED_KEY" = "Generate new key" ]; then
+    gum style --foreground 250 "Generating new SSH key for personal use..."
+    PERSONAL_KEY_PATH="$HOME/.ssh/vps-personal-$(date +%s)"
+    ssh-keygen -t ed25519 -f "$PERSONAL_KEY_PATH" -C "vps-personal-$(date +%s)"
+    USER_SSH_PUBLIC_KEY=$(cat "$PERSONAL_KEY_PATH.pub")
+    gum style --foreground 46 "✅ New personal SSH key generated: $(basename $PERSONAL_KEY_PATH)"
+else
+    # Extract key name from selection
+    KEY_NAME=$(echo "$SELECTED_KEY" | sed 's/ (.*//')
+    USER_SSH_PUBLIC_KEY=$(cat "$HOME/.ssh/$KEY_NAME.pub")
+    gum style --foreground 46 "✅ Selected personal SSH key: $KEY_NAME"
+fi
+
+# Generate GitHub Actions SSH key
+echo
+gum style --foreground 99 --bold "🔑 Generating GitHub Actions SSH key..."
+gum style --foreground 250 "This key will be used for automated deployments."
+
+SSH_KEY_PATH="/tmp/vps-github-actions-key"
 if [ -f "$SSH_KEY_PATH" ]; then
-    if gum confirm "SSH key already exists. Regenerate?"; then
+    if gum confirm "GitHub Actions SSH key already exists. Regenerate?"; then
         rm -f "$SSH_KEY_PATH" "$SSH_KEY_PATH.pub"
     fi
 fi
 
 if [ ! -f "$SSH_KEY_PATH" ]; then
-    gum spin --spinner dot --title "Generating SSH key pair..." -- ssh-keygen -t ed25519 -f "$SSH_KEY_PATH" -N "" -C "vps-setup-$(date +%s)"
-    gum style --foreground 46 "✅ SSH key generated"
+    gum spin --spinner dot --title "Generating GitHub Actions SSH key pair..." -- ssh-keygen -t ed25519 -f "$SSH_KEY_PATH" -N "" -C "vps-github-actions-key-$(date +%s)"
+    gum style --foreground 46 "✅ GitHub Actions SSH key generated"
 fi
 
-SSH_PUBLIC_KEY=$(cat "$SSH_KEY_PATH.pub")
+GITHUB_ACTIONS_SSH_PUBLIC_KEY=$(cat "$SSH_KEY_PATH.pub")
 SSH_PRIVATE_KEY=$(cat "$SSH_KEY_PATH")
 
 # Generate Grafana password
@@ -147,7 +214,7 @@ echo
 gum style --foreground 99 --bold "📝 Updating configuration files..."
 
 # Find all non-markdown files and replace placeholders
-find . -type f \( -name "*.nix" -o -name "*.yaml" -o -name "*.yml" \) -not -path "./.git/*" | while read file; do
+find . -maxdepth 1 -type f ! -name "setup.sh" | while read file; do
     if grep -q "YOUR_" "$file"; then
         gum style --foreground 250 "Updating $file"
         sed -i.bak \
@@ -155,9 +222,10 @@ find . -type f \( -name "*.nix" -o -name "*.yaml" -o -name "*.yml" \) -not -path
             -e "s/YOUR_GITHUB_REPO/$GITHUB_REPO/g" \
             -e "s/YOUR_EMAIL/$EMAIL/g" \
             -e "s/YOUR_DOMAIN/$DOMAIN/g" \
-            -e "s/YOUR_SSH_PUBLIC_KEY/$SSH_PUBLIC_KEY/g" \
-            -e "s/YOUR_GITHUB_ACTION_SSH_PUBLIC_KEY/$SSH_PUBLIC_KEY/g" \
+            -e "s|YOUR_SSH_PUBLIC_KEY|$USER_SSH_PUBLIC_KEY|g" \
+            -e "s|YOUR_GITHUB_ACTION_SSH_PUBLIC_KEY|$GITHUB_ACTIONS_SSH_PUBLIC_KEY|g" \
             -e "s/TS_KEY_GOES_HERE/$TS_AUTH_KEY/g" \
+            -e "s/YOUR_VPS_IP/$VPS_IP/g" \
             "$file"
         rm "$file.bak"
     fi
@@ -189,97 +257,7 @@ gum style --foreground 46 "✅ GitHub secrets uploaded"
 rm -f "$SSH_KEY_PATH"
 gum style --foreground 46 "✅ Private key cleaned up"
 
-# NixOS Infect confirmation
-echo
-gum style \
-    --border double \
-    --margin "1" \
-    --padding "1 2" \
-    --border-foreground 196 \
-    --foreground 196 \
-    --bold \
-    "⚠️  DANGER ZONE ⚠️" \
-    "" \
-    "The next step will COMPLETELY WIPE your VPS" \
-    "and install NixOS. This is IRREVERSIBLE!" \
-    "" \
-    "Make sure you have backups of anything important!"
-
-if ! gum confirm --default=false "Are you absolutely sure you want to proceed with NixOS infect?"; then
-    gum style --foreground 250 "Setup paused. Run this script again when ready."
-    exit 0
-fi
-
-# NixOS Infect
-echo
-gum style --foreground 99 --bold "🚀 Installing NixOS on VPS..."
-
-INFECT_CMD='curl https://raw.githubusercontent.com/elitak/nixos-infect/master/nixos-infect | PROVIDER=hetznercloud NIX_CHANNEL=nixos-25.05 bash 2>&1 | tee /tmp/infect.log'
-
-gum spin --spinner dot --title "Running NixOS infect (this will take several minutes)..." -- ssh root@$VPS_IP "$INFECT_CMD"
-
-if [ $? -eq 0 ]; then
-    gum style --foreground 46 "✅ NixOS infect completed successfully"
-else
-    gum style --foreground 196 "❌ NixOS infect failed"
-    exit 1
-fi
-
-# Wait for reboot
-gum style --foreground 250 "Waiting for VPS to reboot..."
-sleep 30
-
-# Test new connection
-gum spin --spinner dot --title "Testing connection to NixOS..." -- sleep 5
-until ssh -o BatchMode=yes -o ConnectTimeout=5 root@$VPS_IP exit 2>/dev/null; do
-    gum spin --spinner dot --title "Waiting for VPS to come back online..." -- sleep 10
-done
-
-gum style --foreground 46 "✅ VPS is back online with NixOS"
-
-# Download configs
-echo
-gum style --foreground 99 --bold "📥 Downloading NixOS configurations..."
-
-mkdir -p infra/vps-0
-
-gum spin --spinner dot --title "Downloading hardware-configuration.nix..." -- scp root@$VPS_IP:/etc/nixos/hardware-configuration.nix ./infra/vps-0/
-gum spin --spinner dot --title "Downloading networking.nix..." -- scp root@$VPS_IP:/etc/nixos/networking.nix ./infra/vps-0/
-
-gum style --foreground 46 "✅ Configurations downloaded"
-
-# Deploy new config
-echo
-gum style --foreground 99 --bold "🚀 Deploying NixOS configuration..."
-
-gum spin --spinner dot --title "Running make deploy..." -- make deploy
-
-if [ $? -eq 0 ]; then
-    gum style --foreground 46 "✅ Deployment successful"
-else
-    gum style --foreground 196 "❌ Deployment failed"
-    exit 1
-fi
-
-# Clean up public key
-rm -f "$SSH_KEY_PATH.pub"
-
-# Commit and push
-echo
-gum style --foreground 99 --bold "📤 Committing and pushing changes..."
-
-git add .
-git commit -m "feat: configure VPS template with user-specific settings
-
-- Updated configuration files with domain: $DOMAIN
-- Added SSH keys and secrets
-- Ready for deployment"
-
-git push origin main
-
-gum style --foreground 46 "✅ Changes committed and pushed"
-
-# Final success message
+# Setup complete - now provide manual instructions
 echo
 gum style \
     --border double \
@@ -288,20 +266,29 @@ gum style \
     --border-foreground 46 \
     --foreground 46 \
     --bold \
-    "🎉 Setup Complete!" \
+    "🎉 Setup Phase Complete!" \
     "" \
-    "Your VPS is now configured with:" \
-    "• NixOS with your custom configuration" \
-    "• GitHub Actions secrets uploaded" \
-    "• Tailscale integration ready" \
-    "• Monitoring stack configured" \
-    "" \
-    "Next steps:" \
-    "• Check GitHub Actions for deployment status" \
-    "• Access Grafana at: https://grafana.$DOMAIN" \
-    "• Your app will be at: https://$DOMAIN" \
-    "" \
-    "Grafana admin password: $GRAFANA_PASSWORD"
+    "✅ What was completed:" \
+    "• Selected/generated personal SSH key for VPS access" \
+    "• Generated GitHub Actions SSH key for automated deployments" \
+    "• Updated configuration files with your settings:" \
+    "  - Domain: $DOMAIN" \
+    "  - Email: $EMAIL" \
+    "  - Personal and GitHub Actions SSH keys configured" \
+    "• Uploaded GitHub Actions secrets:" \
+    "  - VPS_IP" \
+    "  - VPS_SSH_PRIVATE_KEY" \
+    "  - GRAFANA_ADMIN_PASSWORD" \
+    "  - TS_OAUTH_CLIENT_ID" \
+    "  - TS_OAUTH_SECRET" \
+    "• Verified domain DNS and SSH connectivity"
 
 echo
-gum style --foreground 212 "Happy coding! 🚀"
+gum style --foreground 212 "Grafana password: $GRAFANA_PASSWORD"
+echo
+
+echo
+gum style --foreground 46 "Ready for manual steps! 🚀"
+
+# Clean up public key
+rm -f "$SSH_KEY_PATH.pub"

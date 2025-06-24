@@ -4,7 +4,7 @@ This template sets up a production-ready VPS with NixOS, complete with infrastru
 
 ## ✨ Features
 
-- **Automated Setup**: One-command setup script handles everything
+- **Automated Setup**: Setup script handles configuration and secrets
 - **NixOS Configuration**: Declarative, reproducible system configuration
 - **GitHub Actions**: Automated CI/CD pipeline
 - **Monitoring Stack**: Grafana, Prometheus, Loki, and Tempo
@@ -19,8 +19,8 @@ This template sets up a production-ready VPS with NixOS, complete with infrastru
 1. **Clone this repository**:
 
    ```bash
-   git clone https://github.com/YOUR_USERNAME/vps-template.git
-   cd vps-template
+   git clone https://github.com/YOUR_GITHUB_ORG/YOUR_GITHUB_REPO.git
+   cd YOUR_GITHUB_REPO
    ```
 
 2. **Install required tools**:
@@ -46,7 +46,9 @@ This template sets up a production-ready VPS with NixOS, complete with infrastru
    - Create a [Tailscale account](https://tailscale.com/)
    - Make sure you can SSH to your VPS as root
 
-### Automated Setup
+### Setup Process
+
+#### Step 1: Run Automated Setup
 
 Run the setup script and follow the interactive prompts:
 
@@ -54,25 +56,59 @@ Run the setup script and follow the interactive prompts:
 ./setup.sh
 ```
 
-The script will:
+The script will automatically:
 
 - ✅ Auto-detect your GitHub repository
 - ✅ Collect your email, domain, and VPS IP
 - ✅ Verify DNS resolution and VPS connectivity
-- ✅ Guide you through Tailscale OAuth setup
+- ✅ Guide you through Tailscale OAuth setup (with 'auth-keys' permission and tagging)
 - ✅ Generate SSH keys and Grafana passwords
 - ✅ Upload all GitHub Actions secrets
-- ✅ Replace configuration placeholders
-- ✅ Install NixOS on your VPS (with confirmation)
-- ✅ Deploy your custom configuration
-- ✅ Commit and push changes
+- ✅ Update configuration files with your settings
+
+#### Step 2: Manual VPS Configuration
+
+After the setup script completes, you'll need to manually complete these steps:
+
+1. **Install NixOS on your VPS** (⚠️ **DESTRUCTIVE** - will wipe your VPS):
+
+Run the following command on your VPS:
+
+```bash
+curl https://raw.githubusercontent.com/elitak/nixos-infect/master/nixos-infect | \
+PROVIDER=hetznercloud NIX_CHANNEL=nixos-25.05 bash 2>&1 | tee /tmp/infect.log
+```
+
+2. **Wait for reboot** (1-5 minutes)
+
+You'll know if worked if when you ssh back in the root@vps-0 prompt appears red and non-ubuntu.
+
+3. **Download NixOS configuration files**:
+
+   ```bash
+   scp root@YOUR_VPS_IP:/etc/nixos/hardware-configuration.nix ./infra/vps-0/hardware-configuration.nix
+   scp root@YOUR_VPS_IP:/etc/nixos/networking.nix ./infra/vps-0/networking.nix
+   ```
+
+4. **Deploy your configuration**:
+
+   ```bash
+   make deploy
+   ```
+
+5. **Commit and push changes**:
+   ```bash
+   git add .
+   git commit -m "feat: add VPS hardware configs and deploy"
+   git push origin main
+   ```
 
 ### Access Your Services
 
-After setup completes:
+After deployment completes:
 
 - **Your app**: `https://your-domain.com`
-- **Grafana**: `https://grafana.your-domain.com`
+- **Grafana**: `https://grafana.your-domain.com` (use the password provided by setup script)
 - **GitHub Actions**: Check the Actions tab for deployment status
 
 ## 📋 What You'll Need
@@ -81,54 +117,6 @@ After setup completes:
 - A domain name pointing to your VPS
 - Tailscale account for secure access
 - GitHub CLI and Gum installed locally
-
-## 🔧 Manual Setup (Advanced Users)
-
-<details>
-<summary>Click to expand manual setup instructions</summary>
-
-If you prefer to set things up manually or need to troubleshoot:
-
-### 1. Create a VPS
-
-Spin up a VPS with Ubuntu and SSH access. For NixOS installation:
-
-```bash
-curl https://raw.githubusercontent.com/elitak/nixos-infect/master/nixos-infect | PROVIDER=hetznercloud NIX_CHANNEL=nixos-25.05 bash 2>&1 | tee /tmp/infect.log
-```
-
-### 2. Configure Variables
-
-Replace these placeholders in the configuration files:
-
-- `YOUR_GITHUB_ORG` - Your GitHub organization/username
-- `YOUR_GITHUB_REPO` - Your repository name
-- `YOUR_EMAIL` - Email for ACME certificates
-- `YOUR_DOMAIN` - Your domain name
-- `YOUR_SSH_PUBLIC_KEY` - Your SSH public key
-
-### 3. GitHub Actions Secrets
-
-Create these secrets in your GitHub repository:
-
-- `VPS_IP` - Your VPS IP address
-- `VPS_SSH_PRIVATE_KEY` - SSH private key for deployment
-- `GRAFANA_ADMIN_PASSWORD` - Grafana admin password
-- `TS_OAUTH_CLIENT_ID` - Tailscale OAuth client ID
-- `TS_OAUTH_SECRET` - Tailscale OAuth secret
-
-### 4. Deploy Configuration
-
-```bash
-# Download NixOS configs
-scp root@VPS_IP:/etc/nixos/hardware-configuration.nix ./infra/vps-0/
-scp root@VPS_IP:/etc/nixos/networking.nix ./infra/vps-0/
-
-# Deploy
-make deploy
-```
-
-</details>
 
 ## 🏗️ Architecture
 
@@ -145,6 +133,7 @@ make deploy
 - Automatic security updates
 - Firewall configuration
 - Secure container defaults
+- Scoped Tailscale access with project tagging
 
 ## 📊 Monitoring
 

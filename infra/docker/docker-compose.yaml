@@ -35,7 +35,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--entryPoints.websecure.address=:443"
       - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.email=YOUR_EMAIL"
+      - "--certificatesresolvers.myresolver.acme.email=dev@oliverbutler.uk"
       - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
     ports:
       - "443:443"
@@ -45,7 +45,7 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
 
   app:
-    image: ghcr.io/YOUR_GITHUB_ORG/YOUR_GITHUB_REPO:latest
+    image: ghcr.io/oliverbutler/vps-template-example:latest
     restart: unless-stopped
     networks:
       - app_net
@@ -73,7 +73,7 @@ services:
       start_period: 40s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.app.rule=Host(`YOUR_DOMAIN`)"
+      - "traefik.http.routers.app.rule=Host(`vps-example.oliverbutler.uk`)"
       - "traefik.http.routers.app.entrypoints=websecure"
       - "traefik.http.routers.app.tls.certresolver=myresolver"
       - "traefik.http.routers.app.service=app"
@@ -91,7 +91,7 @@ services:
       DB_USER: postgres
       DB_PORT: 5432
       DB_PASSWORD: password
-      BASE_URL: https://YOUR_DOMAIN
+      BASE_URL: https://vps-example.oliverbutler.uk
       ENV: production
       OTEL_ENDPOINT: http://tempo:4318/v1/traces
       LOG_PATH: /tmp/app-logs/app.log
@@ -112,7 +112,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=https://grafana.YOUR_DOMAIN
+      - GF_SERVER_ROOT_URL=https://grafana.vps-example.oliverbutler.uk
       - LOKI_INTERNAL_URL=http://loki:3100
       - PROMETHEUS_INTERNAL_URL=http://prometheus:9090
       - TEMPO_INTERNAL_URL=http://tempo:3200
@@ -125,7 +125,7 @@ services:
       - ./datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`grafana.YOUR_DOMAIN`)"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.vps-example.oliverbutler.uk`)"
       - "traefik.http.routers.grafana.entrypoints=websecure"
       - "traefik.http.routers.grafana.tls.certresolver=myresolver"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
