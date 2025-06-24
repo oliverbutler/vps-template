@@ -149,14 +149,15 @@
   
   # User accounts
   users.users.root.openssh.authorizedKeys.keys = [
-    "YOUR_SSH_KEY"
+    "YOUR_SSH_PUBLIC_KEY"
   ];
   
   users.users.user = {
     isNormalUser = true;
     extraGroups = [ "wheel" "docker" ];
     openssh.authorizedKeys.keys = [
-      "YOUR_SSH_KEY"
+      "YOUR_SSH_PUBLIC_KEY"
+      "YOUR_GITHUB_ACTION_SSH_PUBLIC_KEY"
     ];
   };
   

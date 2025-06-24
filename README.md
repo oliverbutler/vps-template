@@ -31,7 +31,7 @@ Replace the variables with your own, here is a command to replace them all:
 - `YOUR_GITHUB_REPO` - The repository name for the container registry e.g. `my-repo`
 - `YOUR_EMAIL` - The email for the ACME certificate e.g. `your@email.com`
 - `YOUR_DOMAIN` - The domain name for the VPS e.g. `your-domain.com`
-- `YOUR_SSH_KEY` - Your PUBLIC SSH key e.g. `ssh-ed25519 AAAAC3NzaC...`
+- `YOUR_SSH_PUBLIC_KEY` - Your PUBLIC SSH key e.g. `ssh-ed25519 AAAAC3NzaC...`
 
 ### 3. Prepare your Github Actions secrets
 
@@ -40,7 +40,7 @@ Before doing this, you'll need to generate a new SSH key pair, and add the priva
 run the following command to generate a new SSH key pair
 
 ```bash
-ssh-keygen -t ed25519
+ssh-keygen -t ed25519 -f ./vps-key
 ```
 
 Now make the following secrets in your Github Actions:
