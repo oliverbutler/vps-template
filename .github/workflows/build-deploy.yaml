@@ -111,8 +111,8 @@ jobs:
             echo '${{ secrets.CONTAINER_REGISTRY_PASSWORD }}' | docker login ghcr.io -u user --password-stdin
 
             docker compose --env-file .env pull
-            docker rollout backend --env-file .env
-            docker compose --env-file .env up -d --remove-orphans --scale backend=2
+            docker rollout app --env-file .env
+            docker compose --env-file .env up -d --remove-orphans --scale app=2
 
             docker image prune -f  # Clean up old images
               "
