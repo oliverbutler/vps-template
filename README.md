@@ -105,7 +105,7 @@ You'll know if worked if when you ssh back in the root@vps-0 prompt appears red 
 
 ### Access Your Services
 
-After deployment completes:
+It may take a while to deploy the docker stack, so check the Actions tab for deployment status.
 
 - **Your app**: `https://your-domain.com`
 - **Grafana**: `https://grafana.your-domain.com` (use the password provided by setup script)

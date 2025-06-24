@@ -12,35 +12,7 @@ jobs:
       - name: Checkout code ⤵️
         uses: actions/checkout@v3
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
-          cache: true
-
-      - name: Install Docker
-        uses: docker/setup-buildx-action@v2
-
-      - name: Setup DB
-        run: make up
-
-      - uses: sqlc-dev/setup-sqlc@v3
-        with:
-          sqlc-version: "1.29.0"
-
-      - run: sqlc diff
-
-      - name: Install goose
-        run: |
-          curl -fsSL \
-            https://raw.githubusercontent.com/pressly/goose/master/install.sh |\
-            sh
-
-      - name: Run Migrations
-        run: make migrate-test
-
-      - name: Run tests
-        run: make test
+  # Your tests here
 
   build:
     runs-on: ubuntu-latest
@@ -81,8 +53,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VITE_API_URL=
-            VITE_APP_ENV=production
             IMAGE_TAG=${{ steps.generate_tag.outputs.image_tag }}
           buildx-args: --debug
 
@@ -102,7 +72,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:user
+          tags: tag:SET_YOUR_TAILSCALE_TAG
 
       - name: Setup SSH
         run: |
