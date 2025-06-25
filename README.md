@@ -2,17 +2,27 @@
 
 This template sets up a production-ready VPS with NixOS, complete with infrastructure as code, automated deployment, and a comprehensive monitoring stack.
 
+Rather than running something like Coolify, you can just use this template to start your own setup with sensible, dumb, fundamentals.
+
 ## ✨ Features
 
-- **Automated Setup**: Setup script handles configuration and secrets
-- **NixOS Configuration**: Declarative, reproducible system configuration
-- **GitHub Actions**: Automated CI/CD pipeline
-- **Monitoring Stack**: Grafana, Prometheus, Loki, and Tempo
-- **Secure by Default**: Hardened SSH, Fail2ban, and firewall configuration
-- **Tailscale Integration**: Secure VPN access to your VPS
-- **Docker Support**: Container orchestration with automatic rollouts
+- **NixOS**: It's a very different OS, it's one thats entirely defined by a declarative configuration file, which makes it super simple to deploy and manage - no poking around in the terminal.
+- **Grafana Stack**: Grafana, Prometheus, Loki, and Tempo
+- **Secure Services**: Hardened SSH, Fail2ban, and firewall configuration.
+- **Tailscale Integration**: Secure VPN access to your VPS, no public access to your services.
+- **Zero-Downtime Deployment**: Docker rollout, no downtime.
 
 ## 🚀 Quick Start
+
+### 📋 What You'll Need
+
+- A fresh VPS (any provider, Ubuntu recommended)
+  - Note, you MUST enable the VPS provider firewall for 22 and 443, once you're setup with tailscale you can remove 22 - otherwise docker may expose your services to the public internet.
+- A domain name pointing to your VPS
+  - This can be a subdomain of a larger domain, or a completely separate domain.
+- Tailscale account for secure access
+  - You'll also need a "tag" setup e.g. "tag:my-vps", allowing us to restrict Github Actions to only access this VPS, and the VPS to not access your network.
+- GitHub CLI and Gum installed locally (for the setup script)
 
 ### Prerequisites
 
@@ -45,6 +55,34 @@ This template sets up a production-ready VPS with NixOS, complete with infrastru
    - Register a domain and point it to your VPS IP
    - Create a [Tailscale account](https://tailscale.com/)
    - Make sure you can SSH to your VPS as root
+
+### Tailscale ACLs
+
+In tailscale, you'll need to create an ACL to allow your VPS to be accessed by your devices - and importantly this will prevent the VPS from accessing your network.
+
+```json
+{
+  "acls": [
+    // Allow you full access
+    {
+      "action": "accept",
+      "src": ["YOUR_EMAIL"],
+      "dst": ["*:*"]
+    },
+
+    // Allow your-vps-tagged devices (e.g. GH/GI runners) to reach only the VPS
+    {
+      "action": "accept",
+      "src": ["tag:your-vps"],
+      "dst": ["YOUR_TAILSCALE_VPS_IP:*"]
+    }
+  ],
+
+  "tagOwners": {
+    "tag:your-vps": ["YOUR_EMAIL"]
+  }
+}
+```
 
 ### Setup Process
 
@@ -108,64 +146,5 @@ You'll know if worked if when you ssh back in the root@vps-0 prompt appears red 
 It may take a while to deploy the docker stack, so check the Actions tab for deployment status.
 
 - **Your app**: `https://your-domain.com`
-- **Grafana**: `https://grafana.your-domain.com` (use the password provided by setup script)
-- **GitHub Actions**: Check the Actions tab for deployment status
-
-## 📋 What You'll Need
-
-- A fresh VPS (any provider, Ubuntu recommended)
-- A domain name pointing to your VPS
-- Tailscale account for secure access
-- GitHub CLI and Gum installed locally
-
-## 🏗️ Architecture
-
-- **VPS**: NixOS with hardened security configuration
-- **Containers**: Docker with automatic rollout deployments
-- **Monitoring**: Full observability stack (metrics, logs, traces)
-- **Networking**: Traefik reverse proxy with automatic HTTPS
-- **VPN**: Tailscale for secure access
-
-## 🔐 Security Features
-
-- Hardened SSH configuration (key-based auth only)
-- Fail2ban for intrusion detection
-- Automatic security updates
-- Firewall configuration
-- Secure container defaults
-- Scoped Tailscale access with project tagging
-
-## 📊 Monitoring
-
-Access your monitoring dashboard at `https://grafana.your-domain.com`:
-
-- Application metrics and performance
-- System resource usage
-- Log aggregation and search
-- Distributed tracing
-- Alerting and notifications
-
-## 🚀 Deployment
-
-Every push to `main` triggers:
-
-1. Automated testing
-2. Docker image build and push
-3. Zero-downtime deployment to VPS
-4. Health checks and rollback if needed
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-**Happy coding!** 🎉 If you run into issues, check the GitHub Actions logs or open an issue.
+- **Grafana**: `https://grafana.your-domain.com` (use the password provided by setup script, or if you've lost it, find it inside the VPS in `~/docker/.env`)
+- **Traefik**: `tailsale-ip:8080` used to check the health of the load balancing/cert provisioning
