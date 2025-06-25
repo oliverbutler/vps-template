@@ -141,7 +141,9 @@ TS_OAUTH_CLIENT_ID=$(gum input --placeholder "Enter Tailscale OAuth Client ID")
 TS_OAUTH_SECRET=$(gum input --password --placeholder "Enter Tailscale OAuth Client Secret")
 
 gum style --foreground 250 "Now you need a Tailscale auth key for the VPS."
-gum style --foreground 250 "Go to: https://login.tailscale.com/admin/settings/keys"
+gum style --foreground 250 "Go to: https://login.tailscale.com/admin/settings/keys" 
+gum style --foreground 250 "They key can be 'pre-approved' and one time use."
+gum style --foreground 250 "Copy the key ID, and paste it here."
 TS_AUTH_KEY=$(gum input --password --placeholder "Enter Tailscale Auth Key")
 
 # Select user's personal SSH key
